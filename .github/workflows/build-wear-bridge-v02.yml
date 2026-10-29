@@ -1,0 +1,76 @@
+name: Quick Trip Wear v0.2 - Real Mapa Alerts Bridge QA
+on:
+  push:
+    branches:
+      - qa/wear-mapa-real-bridge-v02-20261029
+    paths:
+      - '.github/workflows/build-wear-bridge-v02.yml'
+      - 'app/**'
+      - 'phone/**'
+      - 'settings.gradle.kts'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-and-package-pair:
+    name: Same-signature Phone and Watch QA APKs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install SDK 35 from hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$sdkmanager"
+          "$sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+          cache-disabled: true
+      - name: QA isolation guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'uy.com.mapatrayectos' phone/src/main/java/uy/quicktrip/wearqa/SourceClassifier.java
+          ! grep -R -n -E 'android.permission.INTERNET|supabase.co|https?://' app/src/main phone/src/main
+          ! grep -R -n -E 'sendBroadcast\(.*ACCEPT|reservation.*update|PendingIntent.send\(' phone/src/main app/src/main
+          grep -F 'applicationId = "uy.quicktrip.wearqa"' app/build.gradle.kts
+          grep -F 'applicationId = "uy.quicktrip.wearqa"' phone/build.gradle.kts
+      - name: Test and build both APKs
+        run: gradle --no-daemon :phone:testDebugUnitTest :app:testDebugUnitTest :phone:assembleDebug :app:assembleDebug
+      - name: Verify same signature and packages; prepare evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/quicktrip-wear-v02.apk
+          cp phone/build/outputs/apk/debug/phone-debug.apk out/quicktrip-phone-bridge-v02.apk
+          signer() {
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$1" |
+              grep 'Signer #1 certificate SHA-256 digest:' | sed 's/^.*: //'
+          }
+          wear="$(signer out/quicktrip-wear-v02.apk)"
+          phone="$(signer out/quicktrip-phone-bridge-v02.apk)"
+          test -n "$wear"
+          test "$wear" = "$phone"
+          for f in out/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$f"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$f" | grep "package: name='uy.quicktrip.wearqa'"
+          done
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/quicktrip-wear-v02.apk | grep -F "android.hardware.type.watch"
+          ! "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/quicktrip-phone-bridge-v02.apk | grep -F "android.hardware.type.watch"
+          sha256sum out/*.apk | tee out/SHA256SUMS.txt
+          printf 'Commit %s\nRun %s\nCommon signing certificate SHA256: %s\nAndroid Mapa QT not modified.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$wear" | tee out/QA_EVIDENCE.txt
+      - name: Upload Watch + Phone pair (7-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-trip-wear-v02-real-sync-pair
+          retention-days: 7
+          if-no-files-found: error
+          path: out/

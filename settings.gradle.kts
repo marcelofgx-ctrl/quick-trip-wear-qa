@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "QuickTripWearQA"
-include(":app")
+include(":app", ":phone")
