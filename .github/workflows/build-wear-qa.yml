@@ -1,0 +1,67 @@
+name: Quick Trip Wear QA v0.1 - APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-wear-qa.yml'
+permissions:
+  contents: read
+jobs:
+  test-and-build:
+    name: Tests + signed debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout independent QA
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android API 35
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+          cache-disabled: true
+      - name: Check demo isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -nE 'android.permission.INTERNET|https?://|supabase' app/src/main/java || grep -n 'android.permission.INTERNET' app/src/main/AndroidManifest.xml; then
+            echo 'Unexpected network/integration in demo source'
+            exit 1
+          fi
+          grep -F 'android.hardware.type.watch' app/src/main/AndroidManifest.xml
+          grep -F 'applicationId = "uy.quicktrip.wearqa"' app/build.gradle.kts
+      - name: Unit tests + debug APK
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify APK package, signature, SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk" | tee apk-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | tee apk-badging.txt
+          grep -F "package: name='uy.quicktrip.wearqa'" apk-badging.txt
+          sha256sum "$apk" | tee SHA256SUMS.txt
+          printf 'SHA: %s\nRun ID: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > build-evidence.txt
+      - name: Save APK and QA evidence for 7 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-trip-wear-qa-v01-debug
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/test-results/testDebugUnitTest/
+            apk-signature.txt
+            apk-badging.txt
+            SHA256SUMS.txt
+            build-evidence.txt
