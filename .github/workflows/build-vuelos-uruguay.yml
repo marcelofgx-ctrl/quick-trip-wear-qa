@@ -1,0 +1,55 @@
+name: Vuelos Uruguay - APK independiente
+on:
+  push:
+    branches:
+      - qa/vuelos-uruguay-20261102
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar SDK Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+          cache-disabled: true
+      - name: Compilar APK Android
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Verificar paquete y firma
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          cp "$apk" Vuelos-Uruguay-v1.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk" | tee firma.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | tee paquete.txt
+          grep -F "package: name='uy.vuelos.uruguay'" paquete.txt
+          sha256sum Vuelos-Uruguay-v1.0.apk | tee SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vuelos-Uruguay-v1.0-APK
+          if-no-files-found: error
+          path: |
+            Vuelos-Uruguay-v1.0.apk
+            SHA256SUMS.txt
+            firma.txt
+            paquete.txt
+      - name: Publicar APK descargable en Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create vuelos-uruguay-v1.0-20261102 Vuelos-Uruguay-v1.0.apk SHA256SUMS.txt --target "$GITHUB_SHA" --title 'Vuelos Uruguay v1.0 - APK Carrasco' --notes 'APK independiente para consultar panel oficial de Carrasco, salidas, vuelos futuros y seguimiento. Fuentes externas, requiere Internet. Compilación QA instalable, no afiliada al aeropuerto.'

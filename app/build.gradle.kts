@@ -1,30 +1,16 @@
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-}
+plugins { id("com.android.application") }
 android {
-    namespace = "uy.quicktrip.wearqa"
+    namespace = "uy.vuelos.uruguay"
     compileSdk = 35
     defaultConfig {
-        applicationId = "uy.quicktrip.wearqa"
-        minSdk = 30
-        targetSdk = 35
+        applicationId = "uy.vuelos.uruguay"
+        minSdk = 26
+        targetSdk = 32
         versionCode = 1
-        versionName = "0.1-qa"
+        versionName = "1.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
-}
-dependencies {
-    implementation(platform("androidx.compose:compose-bom:2025.06.01"))
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.wear.compose:compose-material3:1.5.0")
-    testImplementation("junit:junit:4.13.2")
 }
