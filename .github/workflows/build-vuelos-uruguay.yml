@@ -1,8 +1,7 @@
-name: Vuelos Uruguay - APK independiente
+name: Vuelos Uruguay v1.1 - Cartelera sin publicidad
 on:
   push:
-    branches:
-      - qa/vuelos-uruguay-20261102
+    branches: [qa/vuelos-uruguay-20261102]
   workflow_dispatch:
 permissions:
   contents: write
@@ -35,23 +34,24 @@ jobs:
           set -euo pipefail
           apk=app/build/outputs/apk/debug/app-debug.apk
           test -s "$apk"
-          cp "$apk" Vuelos-Uruguay-v1.0.apk
+          cp "$apk" Vuelos-Uruguay-v1.1.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk" | tee firma.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | tee paquete.txt
           grep -F "package: name='uy.vuelos.uruguay'" paquete.txt
-          sha256sum Vuelos-Uruguay-v1.0.apk | tee SHA256SUMS.txt
+          grep -F "versionName='1.1'" paquete.txt
+          sha256sum Vuelos-Uruguay-v1.1.apk | tee SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Vuelos-Uruguay-v1.0-APK
+          name: Vuelos-Uruguay-v1.1-APK
           if-no-files-found: error
           path: |
-            Vuelos-Uruguay-v1.0.apk
+            Vuelos-Uruguay-v1.1.apk
             SHA256SUMS.txt
             firma.txt
             paquete.txt
-      - name: Publicar APK descargable en Release
+      - name: Publicar APK v1.1 descargable
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release create vuelos-uruguay-v1.0-20261102 Vuelos-Uruguay-v1.0.apk SHA256SUMS.txt --target "$GITHUB_SHA" --title 'Vuelos Uruguay v1.0 - APK Carrasco' --notes 'APK independiente para consultar panel oficial de Carrasco, salidas, vuelos futuros y seguimiento. Fuentes externas, requiere Internet. Compilación QA instalable, no afiliada al aeropuerto.'
+          gh release create vuelos-uruguay-v1.1-20261102 Vuelos-Uruguay-v1.1.apk SHA256SUMS.txt --target "$GITHUB_SHA" --title 'Vuelos Uruguay v1.1 - Llegadas Carrasco' --notes 'APK QA: widget gratuito Avionio sin portales publicitarios. Llegadas y salidas, fechas y estados. Fuente externa. Si instalaste v1.0, desinstalala antes de instalar v1.1 por la firma de prueba.'

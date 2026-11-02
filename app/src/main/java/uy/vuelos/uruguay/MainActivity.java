@@ -2,6 +2,7 @@ package uy.vuelos.uruguay;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -14,232 +15,206 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.CookieManager;
 import android.widget.Button;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
 
 public final class MainActivity extends Activity {
-    private static final int NAVY = Color.rgb(9, 24, 42);
-    private static final int DEEP = Color.rgb(17, 40, 62);
-    private static final int MINT = Color.rgb(50, 214, 176);
-    private static final int WHITE = Color.WHITE;
-    private static final String[] NAMES = {"LLEGADAS", "SALIDAS", "PRÓXIMOS DÍAS", "RASTREO"};
-    private static final String[] SOURCES = {"Aeropuerto de Carrasco · oficial", "Avionio · informativo", "Flight.info · programación", "FlightAware · seguimiento"};
-    private static final String[] URLS = {
-        "https://aeropuertodecarrasco.com.uy/panel-de-vuelos/",
-        "https://www.avionio.com/es/airport/MVD/departures",
-        "https://www.flight.info/MVD/arrivals",
-        "https://es.flightaware.com/live/airport/SUMU"
-    };
-    private WebView browser;
-    private Button[] tabs;
-    private TextView sourceText;
+    private static final int NAVY = 0xFF081C30;
+    private static final int TEAL = 0xFF36D4AD;
+    private static final int PALE = 0xFFF0F6F8;
+    private static final String ARRIVALS = "https://www.avionio.com/widget/es/mvd/arrivals?style=3";
+    private static final String DEPARTURES = "https://www.avionio.com/widget/es/mvd/departures?style=3";
+    private int mode = 0;
+    private Button btnArrivals, btnDepartures;
+    private TextView title, clock, status, error;
     private ProgressBar progress;
-    private int current = 0;
-    private boolean loadError = false;
+    private WebView panel;
 
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
+    @Override public void onCreate(Bundle bundle) {
+        super.onCreate(bundle);
         getWindow().setStatusBarColor(NAVY);
         getWindow().setNavigationBarColor(NAVY);
-        buildInterface();
-        if (state != null) {
-            current = Math.max(0, Math.min(3, state.getInt("currentTab", 0)));
-            browser.restoreState(state);
-            renderSelection();
-            if (browser.getUrl() == null) openTab(current);
-        } else {
-            openTab(0);
-        }
+        createUI();
+        mode = bundle == null ? 0 : bundle.getInt("mode", 0);
+        choose(mode);
     }
 
-    private int dp(float value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private int dp(int n) {
+        return Math.round(n * getResources().getDisplayMetrics().density);
     }
 
-    private TextView text(String value, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(value);
-        t.setTextColor(color);
-        t.setTextSize(sp);
-        if (bold) t.setTypeface(null, android.graphics.Typeface.BOLD);
-        return t;
+    private TextView text(String content, int sp, int color, boolean bold) {
+        TextView x = new TextView(this);
+        x.setText(content);
+        x.setTextSize(sp);
+        x.setTextColor(color);
+        if (bold) x.setTypeface(null, android.graphics.Typeface.BOLD);
+        return x;
     }
 
-    private void buildInterface() {
+    private Button button(String caption) {
+        Button b = new Button(this);
+        b.setText(caption);
+        b.setAllCaps(false);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setTextSize(14);
+        b.setPadding(dp(9), 0, dp(9), 0);
+        return b;
+    }
+
+    private void createUI() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(WHITE);
-
-        LinearLayout header = new LinearLayout(this);
-        header.setBackgroundColor(NAVY);
-        header.setPadding(dp(18), dp(13), dp(12), dp(12));
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        root.setBackgroundColor(Color.WHITE);
 
         LinearLayout heading = new LinearLayout(this);
-        heading.setOrientation(LinearLayout.VERTICAL);
-        TextView h1 = text("✈  VUELOS URUGUAY", 19, WHITE, true);
-        TextView h2 = text("Carrasco (MVD)  ·  Horario local UY", 12, 0xFFB8CED9, false);
-        heading.addView(h1);
-        heading.addView(h2);
-        header.addView(heading, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        heading.setBackgroundColor(NAVY);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.setPadding(dp(17), dp(17), dp(12), dp(14));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        title = text("✈  LLEGADAS · CARRASCO", 19, Color.WHITE, true);
+        clock = text("Montevideo · MVD · Uruguay", 12, 0xFFB3CCD5, false);
+        clock.setPadding(0, dp(5), 0, 0);
+        titles.addView(title);
+        titles.addView(clock);
+        heading.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button refresh = button("↻");
+        refresh.setTextSize(24);
+        refresh.setTextColor(Color.WHITE);
+        refresh.setContentDescription("Actualizar información de vuelos");
+        refresh.setBackgroundTintList(ColorStateList.valueOf(0xFF20415B));
+        refresh.setOnClickListener(v -> { error.setVisibility(View.GONE); panel.reload(); });
+        heading.addView(refresh, new LinearLayout.LayoutParams(dp(48), dp(43)));
+        root.addView(heading);
 
-        Button refresh = utilityButton("↻", "Actualizar");
-        refresh.setOnClickListener(v -> browser.reload());
-        header.addView(refresh);
-        Button outside = utilityButton("↗", "Abrir en navegador");
-        outside.setOnClickListener(v -> {
-            try {
-                String u = browser.getUrl() == null ? URLS[current] : browser.getUrl();
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(u)));
-            } catch (Exception ignored) {}
-        });
-        header.addView(outside);
-        root.addView(header);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setBackgroundColor(NAVY);
+        tabs.setPadding(dp(12), 0, dp(12), dp(12));
+        btnArrivals = button("↓  Llegadas");
+        btnDepartures = button("↑  Salidas");
+        tabs.addView(btnArrivals, new LinearLayout.LayoutParams(0, dp(43), 1));
+        LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0, dp(43), 1);
+        second.setMargins(dp(9), 0, 0, 0);
+        tabs.addView(btnDepartures, second);
+        btnArrivals.setOnClickListener(v -> choose(0));
+        btnDepartures.setOnClickListener(v -> choose(1));
+        root.addView(tabs);
 
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setBackgroundColor(DEEP);
-        LinearLayout nav = new LinearLayout(this);
-        nav.setPadding(dp(10), dp(5), dp(10), dp(7));
-        tabs = new Button[NAMES.length];
-        for (int i=0; i<NAMES.length; i++) {
-            final int index = i;
-            Button b = new Button(this);
-            b.setAllCaps(false);
-            b.setText(NAMES[i]);
-            b.setTextSize(11);
-            b.setSingleLine(true);
-            b.setMinWidth(0);
-            b.setMinimumWidth(0);
-            b.setMinHeight(0);
-            b.setMinimumHeight(0);
-            b.setPadding(dp(12), dp(7), dp(12), dp(7));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(39));
-            p.setMargins(dp(3), 0, dp(3), 0);
-            nav.addView(b, p);
-            tabs[i] = b;
-            b.setOnClickListener(v -> openTab(index));
-        }
-        scroll.addView(nav);
-        root.addView(scroll);
-
-        LinearLayout info = new LinearLayout(this);
-        info.setGravity(Gravity.CENTER_VERTICAL);
-        info.setPadding(dp(16), dp(9), dp(16), dp(9));
-        info.setBackgroundColor(0xFFF0F6F8);
-        sourceText = text("Cargando…", 12, 0xFF31506A, true);
-        info.addView(sourceText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        TextView hint = text("Internet", 11, 0xFF587387, false);
-        info.addView(hint);
+        TextView info = text("HORARIOS LOCALES · ELEGÍ LA FECHA DENTRO DEL PANEL", 11, 0xFF116F5E, true);
+        info.setPadding(dp(14), dp(10), dp(14), dp(10));
+        info.setBackgroundColor(0xFFEAF6F1);
         root.addView(info);
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
-        progress.setProgressTintList(android.content.res.ColorStateList.valueOf(MINT));
-        progress.setIndeterminate(false);
+        progress.setProgressTintList(ColorStateList.valueOf(TEAL));
         root.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
 
-        browser = new WebView(this);
-        browser.setBackgroundColor(WHITE);
-        WebSettings settings = browser.getSettings();
-        settings.setJavaScriptEnabled(true); // Required by the source flight-board websites.
-        settings.setDomStorageEnabled(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-        settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
-        browser.setWebChromeClient(new WebChromeClient() {
+        panel = new WebView(this);
+        panel.setBackgroundColor(Color.WHITE);
+        WebSettings web = panel.getSettings();
+        web.setJavaScriptEnabled(true);
+        web.setDomStorageEnabled(true);
+        web.setLoadWithOverviewMode(true);
+        web.setUseWideViewPort(true);
+        web.setBuiltInZoomControls(true);
+        web.setDisplayZoomControls(false);
+        web.setAllowFileAccess(false);
+        web.setAllowContentAccess(false);
+        web.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        panel.setWebChromeClient(new WebChromeClient() {
             @Override public void onProgressChanged(WebView view, int value) {
                 progress.setProgress(value);
                 progress.setVisibility(value >= 100 ? View.GONE : View.VISIBLE);
             }
         });
-        browser.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                if (!request.isForMainFrame()) return false;
-                String scheme = request.getUrl().getScheme();
-                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) return false;
-                try { startActivity(new Intent(Intent.ACTION_VIEW, request.getUrl())); } catch (Exception ignored) {}
+        panel.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
+                if (!req.isForMainFrame()) return false;
+                Uri url = req.getUrl();
+                String host = url.getHost(), path = url.getPath();
+                if ("https".equalsIgnoreCase(url.getScheme()) &&
+                    "www.avionio.com".equalsIgnoreCase(host) &&
+                    path != null && path.startsWith("/widget/es/mvd/")) return false;
+                if ("https".equalsIgnoreCase(url.getScheme()) || "http".equalsIgnoreCase(url.getScheme())) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
+                    catch (Exception ignored) { }
+                }
                 return true;
             }
-            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                loadError = false;
-                sourceText.setText(SOURCES[current] + "  ·  Actualizando…");
+            @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
+                error.setVisibility(View.GONE);
+                status.setText("Consultando vuelos…");
             }
-            @Override public void onPageFinished(WebView view, String url) {
-                if (!loadError) sourceText.setText(SOURCES[current]);
+            @Override public void onPageFinished(WebView v, String url) {
+                status.setText("Fuente: Avionio · Datos orientativos");
             }
-            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) {
-                    loadError = true;
-                    sourceText.setText("Sin conexión o fuente no disponible. Tocá ↻ para reintentar.");
+            @Override public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError err) {
+                if (req.isForMainFrame()) {
+                    error.setText("No se pudo consultar la cartelera. Revisá Internet y tocá ↻.");
+                    error.setVisibility(View.VISIBLE);
+                    status.setText("Fuente no disponible");
                 }
             }
         });
-        root.addView(browser, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(panel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        TextView footer = text("Fuentes externas  ·  Consultas gratuitas  ·  No afiliada a aeropuertos", 10, 0xFF647C8A, false);
-        footer.setGravity(Gravity.CENTER);
-        footer.setPadding(dp(5), dp(8), dp(5), dp(9));
-        footer.setBackgroundColor(0xFFF0F6F8);
+        error = text("", 12, 0xFFAE2933, true);
+        error.setGravity(Gravity.CENTER);
+        error.setBackgroundColor(0xFFFFF1F0);
+        error.setPadding(dp(14), dp(9), dp(14), dp(9));
+        error.setVisibility(View.GONE);
+        root.addView(error);
+
+        LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setPadding(dp(12), dp(10), dp(12), dp(10));
+        footer.setBackgroundColor(PALE);
+        status = text("Fuente: Avionio · Datos orientativos", 11, 0xFF526D7A, false);
+        footer.addView(status, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView attribution = text("Avionio.com", 11, 0xFF146C93, true);
+        attribution.setOnClickListener(v -> {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.avionio.com/es"))); }
+            catch (Exception ignored) { }
+        });
+        footer.addView(attribution);
         root.addView(footer);
         setContentView(root);
     }
 
-    private Button utilityButton(String symbol, String description) {
-        Button b = new Button(this);
-        b.setText(symbol);
-        b.setTextColor(WHITE);
-        b.setTextSize(21);
-        b.setAllCaps(false);
-        b.setContentDescription(description);
-        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(DEEP));
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setPadding(dp(8), 0, dp(8), 0);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(42), dp(42));
-        p.setMargins(dp(4), 0, 0, 0);
-        b.setLayoutParams(p);
-        return b;
+    private void choose(int newMode) {
+        mode = newMode == 1 ? 1 : 0;
+        title.setText(mode == 0 ? "✈  LLEGADAS · CARRASCO" : "✈  SALIDAS · CARRASCO");
+        SimpleDateFormat f = new SimpleDateFormat("dd MMM · HH:mm", new Locale("es", "UY"));
+        f.setTimeZone(TimeZone.getTimeZone("America/Montevideo"));
+        clock.setText("Montevideo · " + f.format(new Date()) + " · MVD");
+        btnArrivals.setTextColor(mode == 0 ? NAVY : Color.WHITE);
+        btnDepartures.setTextColor(mode == 1 ? NAVY : Color.WHITE);
+        btnArrivals.setBackgroundTintList(ColorStateList.valueOf(mode == 0 ? TEAL : 0xFF20415B));
+        btnDepartures.setBackgroundTintList(ColorStateList.valueOf(mode == 1 ? TEAL : 0xFF20415B));
+        error.setVisibility(View.GONE);
+        panel.loadUrl(mode == 0 ? ARRIVALS : DEPARTURES);
     }
 
-    private void renderSelection() {
-        for (int i = 0; i < tabs.length; i++) {
-            boolean active = i == current;
-            tabs[i].setTextColor(active ? NAVY : WHITE);
-            tabs[i].setBackgroundTintList(android.content.res.ColorStateList.valueOf(active ? MINT : DEEP));
-        }
-        sourceText.setText(SOURCES[current]);
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putInt("mode", mode);
+        super.onSaveInstanceState(state);
     }
-
-    private void openTab(int index) {
-        current = index;
-        renderSelection();
-        browser.loadUrl(URLS[index]);
-    }
-
-    @Override protected void onSaveInstanceState(Bundle out) {
-        out.putInt("currentTab", current);
-        browser.saveState(out);
-        super.onSaveInstanceState(out);
-    }
-
     @Override public void onBackPressed() {
-        if (browser != null && browser.canGoBack()) browser.goBack();
-        else super.onBackPressed();
+        if (panel.canGoBack()) panel.goBack(); else super.onBackPressed();
     }
-
     @Override protected void onDestroy() {
-        if (browser != null) browser.destroy();
+        if (panel != null) panel.destroy();
         super.onDestroy();
     }
 }
